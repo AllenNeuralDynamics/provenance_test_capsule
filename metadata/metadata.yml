@@ -1,2 +1,6 @@
 metadata_version: 1
 name: provenance_test_capsule
+description: a test to demonstrate provenance tracking between editable and release
+  capsules
+authors:
+- name: doug ollerenshaw
