@@ -16,6 +16,8 @@ import os
 import urllib.request
 from datetime import datetime, timezone
 
+print('trivial chnage before v5 release')
+
 capsule_id = os.environ["CO_CAPSULE_ID"]
 auth = base64.b64encode(f"{os.environ['API_KEY']}:".encode()).decode()
 req = urllib.request.Request(
