@@ -16,8 +16,6 @@ import os
 import urllib.request
 from datetime import datetime, timezone
 
-print("in run_capsule.py. I'm about to release v4")
-
 capsule_id = os.environ["CO_CAPSULE_ID"]
 auth = base64.b64encode(f"{os.environ['API_KEY']}:".encode()).decode()
 req = urllib.request.Request(
@@ -40,9 +38,16 @@ print(json.dumps(comp_meta, indent=2, sort_keys=True))
 print("================================")
 
 if meta.get("status") == "release":
-    versions = meta.get("versions") or []
-    latest = max(versions, key=lambda v: v.get("release_time", 0), default={})
-    version_label = f"v{latest.get('major_version')}.{latest.get('minor_version')}"
+    # Undocumented but observed: the computation endpoint returns "version"
+    # as an integer = the major version of the release this run was launched
+    # from. Look up the matching entry in the capsule's versions list to also
+    # get the minor version.
+    running_major = comp_meta.get("version")
+    match = next(
+        (v for v in (meta.get("versions") or []) if v.get("major_version") == running_major),
+        {},
+    )
+    version_label = f"v{running_major}.{match.get('minor_version', 0)}"
 else:
     version_label = "editable"
 
