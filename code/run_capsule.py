@@ -25,6 +25,18 @@ req = urllib.request.Request(
 with urllib.request.urlopen(req, timeout=10) as resp:
     meta = json.loads(resp.read())
 
+# Also probe the computation endpoint — does it carry any undocumented field
+# that identifies which specific release version this run was launched from?
+comp_req = urllib.request.Request(
+    f"https://codeocean.allenneuraldynamics.org/api/v1/computations/{os.environ['CO_COMPUTATION_ID']}",
+    headers={"Authorization": f"Basic {auth}"},
+)
+with urllib.request.urlopen(comp_req, timeout=10) as resp:
+    comp_meta = json.loads(resp.read())
+print("=== Computation API response ===")
+print(json.dumps(comp_meta, indent=2, sort_keys=True))
+print("================================")
+
 if meta.get("status") == "release":
     versions = meta.get("versions") or []
     latest = max(versions, key=lambda v: v.get("release_time", 0), default={})
