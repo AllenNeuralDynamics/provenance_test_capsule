@@ -12,14 +12,56 @@ that defines get_provenance().
 """
 
 import json
+import os
+import subprocess
 from pathlib import Path
 
-from utils import get_code_ocean_provenance, get_local_git_provenance
+from utils import _get_json, get_code_ocean_provenance, get_local_git_provenance
 
 provenance = {
     "code_ocean": get_code_ocean_provenance(),
     "local_git": get_local_git_provenance(),
 }
+
+# --- experiment-only probes (remove before extracting utils.py as a library) ---
+# Prospecting for where CO stores the linked-GitHub repo URL / commit hash:
+# raw API responses, all CO_* env vars, filesystem scan for .git/ at unusual paths.
+
+probes: dict = {
+    "co_env_vars": {k: v for k, v in sorted(os.environ.items()) if k.startswith("CO_")},
+}
+
+try:
+    capsule_id = os.environ["CO_CAPSULE_ID"]
+    computation_id = os.environ["CO_COMPUTATION_ID"]
+    token = os.environ["API_KEY"]
+    probes["raw_capsule"] = _get_json(f"/capsules/{capsule_id}", token)
+    probes["raw_computation"] = _get_json(f"/computations/{computation_id}", token)
+except KeyError:
+    pass
+
+
+def _safe_run(args: list[str]) -> str:
+    try:
+        r = subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=20,
+        )
+        return r.stdout.strip()
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        return f"(error: {e})"
+
+
+probes["ls_slash_code"] = _safe_run(["ls", "-la", "/code"])
+probes["find_git_dirs"] = _safe_run([
+    "find", "/", "-maxdepth", "5", "-name", ".git",
+    "-not", "-path", "/proc/*", "-not", "-path", "/sys/*",
+])
+
+provenance["probes"] = probes
 
 out_dir = (
     Path("/results")
