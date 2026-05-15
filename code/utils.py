@@ -28,6 +28,8 @@ Example:
 import base64
 import json
 import os
+import re
+import subprocess
 import urllib.request
 from datetime import datetime, timezone
 from typing import Any
@@ -46,7 +48,7 @@ def _get_json(path: str, token: str) -> dict[str, Any]:
         return json.loads(resp.read())
 
 
-def get_provenance() -> dict[str, Any]:
+def get_code_ocean_provenance() -> dict[str, Any]:
     """Look up provenance for the currently running Code Ocean capsule.
 
     Returns a dict with the following keys:
@@ -104,17 +106,35 @@ def get_provenance() -> dict[str, Any]:
       object, or via a new env var), this function can populate the field
       without changing its signature.
 
-    Raises:
-      ``KeyError`` if any of ``CO_CAPSULE_ID``, ``CO_COMPUTATION_ID``, or
-      ``API_KEY`` is not set.
+    When the required CO env vars are not present (e.g. running on a laptop),
+    returns a no-op dict with ``status="no_code_ocean"`` and a ``message``
+    field explaining what was missing — never raises ``KeyError``. This lets
+    callers invoke it unconditionally without an outer try/except.
 
+    Raises:
       ``urllib.error.HTTPError`` on a non-2xx response from the CO API
       (commonly a 401 if ``API_KEY`` is missing the Capsules scope, or a 404
       if ``CO_CAPSULE_ID`` doesn't resolve).
     """
-    capsule_id = os.environ["CO_CAPSULE_ID"]
-    computation_id = os.environ["CO_COMPUTATION_ID"]
-    token = os.environ["API_KEY"]
+    try:
+        capsule_id = os.environ["CO_CAPSULE_ID"]
+        computation_id = os.environ["CO_COMPUTATION_ID"]
+        token = os.environ["API_KEY"]
+    except KeyError as e:
+        return {
+            "status": "no_code_ocean",
+            "message": f"Missing Code Ocean env var {e}. Likely not running in a CO capsule.",
+            "is_released": None,
+            "version": None,
+            "version_major": None,
+            "version_minor": None,
+            "capsule_id": None,
+            "computation_id": None,
+            "slug": None,
+            "capsule_url": None,
+            "commit_hash": None,
+            "run_timestamp": None,
+        }
 
     capsule = _get_json(f"/capsules/{capsule_id}", token)
     computation = _get_json(f"/computations/{computation_id}", token)
@@ -164,6 +184,82 @@ def get_provenance() -> dict[str, Any]:
     }
 
 
+def _git(args: list[str], cwd: str | None = None) -> str | None:
+    """Run a git command, return stripped stdout or None on failure."""
+    try:
+        r = subprocess.run(
+            ["git", *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return r.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
+def get_local_git_provenance(cwd: str | None = None) -> dict[str, Any]:
+    """Look up provenance from the local git working tree.
+
+    Useful when running outside Code Ocean (e.g. on a developer laptop or a
+    GitHub Actions runner). Populates the same conceptual provenance fields
+    AIND's `Code` object cares about — commit hash and source URL — by
+    shelling out to ``git``.
+
+    Returns a dict with keys:
+
+      ``status``        : ``"local_git"`` if a git repo was found, else
+                          ``"no_git"``.
+      ``commit_hash``   : full SHA of ``HEAD`` (or ``None``).
+      ``branch``        : current branch name, or ``"HEAD"`` if detached.
+      ``remote_url``    : value of ``remote.origin.url`` as configured.
+      ``is_dirty``      : ``True`` if the working tree has uncommitted
+                          changes, ``False`` if clean, ``None`` if unknown.
+      ``commit_url``    : ``https://github.com/<owner>/<repo>/commit/<sha>``
+                          when the remote is parseable as GitHub, else
+                          ``None``.
+      ``run_timestamp`` : ISO 8601 UTC timestamp of when this call ran.
+    """
+    commit = _git(["rev-parse", "HEAD"], cwd=cwd)
+    if commit is None:
+        return {
+            "status": "no_git",
+            "commit_hash": None,
+            "branch": None,
+            "remote_url": None,
+            "is_dirty": None,
+            "commit_url": None,
+            "run_timestamp": datetime.now(tz=timezone.utc).isoformat(),
+        }
+
+    branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=cwd)
+    remote_url = _git(["config", "--get", "remote.origin.url"], cwd=cwd)
+    dirty_output = _git(["status", "--porcelain"], cwd=cwd)
+    is_dirty = bool(dirty_output) if dirty_output is not None else None
+
+    github_repo = None
+    if remote_url:
+        m = re.search(r"github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?$", remote_url)
+        if m:
+            github_repo = m.group(1)
+    commit_url = (
+        f"https://github.com/{github_repo}/commit/{commit}"
+        if github_repo
+        else None
+    )
+
+    return {
+        "status": "local_git",
+        "commit_hash": commit,
+        "branch": branch,
+        "remote_url": remote_url,
+        "is_dirty": is_dirty,
+        "commit_url": commit_url,
+        "run_timestamp": datetime.now(tz=timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import pprint
-    pprint.pprint(get_provenance())
+    pprint.pprint(get_code_ocean_provenance())

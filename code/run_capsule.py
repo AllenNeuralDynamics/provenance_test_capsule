@@ -11,19 +11,24 @@ Requires the "Code Ocean API Credentials" Secret attached to the capsule
 that defines get_provenance().
 """
 
-from utils import get_provenance
+import json
+from pathlib import Path
 
-p = get_provenance()
+from utils import get_code_ocean_provenance, get_local_git_provenance
 
-info = (
-    f"run timestamp: {p['run_timestamp']}\n"
-    f"status:        {p['status']}\n"
-    f"version:       {p['version']}\n"
-    f"capsule ID:    {p['capsule_id']}\n"
-    f"slug:          {p['slug']}\n"
-    f"capsule URL:   {p['capsule_url']}\n"
+provenance = {
+    "code_ocean": get_code_ocean_provenance(),
+    "local_git": get_local_git_provenance(),
+}
+
+out_dir = (
+    Path("/results")
+    if Path("/results").is_dir()
+    else Path(__file__).resolve().parent.parent / "results"
 )
+out_dir.mkdir(parents=True, exist_ok=True)
+out_path = out_dir / "run_info.json"
+out_path.write_text(json.dumps(provenance, indent=2))
 
-with open("/results/run_info.txt", "w") as f:
-    f.write(info)
-print(info)
+print(json.dumps(provenance, indent=2))
+print(f"wrote {out_path}")
