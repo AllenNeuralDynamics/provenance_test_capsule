@@ -81,4 +81,9 @@ token = os.environ["API_KEY"]
 url = f"https://codeocean.allenneuraldynamics.org/api/v1/computations/{os.environ['CO_COMPUTATION_ID']}"
 auth = base64.b64encode(f"{token}:".encode()).decode()
 req = urllib.request.Request(url, headers={"Authorization": f"Basic {auth}"})
-print(json.loads(urllib.request.urlopen(req).read())["version"])
+response = json.loads(urllib.request.urlopen(req).read())
+
+if "version" in response:
+    print(f"Running release v{response['version']}")
+else:
+    print("Running editable capsule (no release version)")
